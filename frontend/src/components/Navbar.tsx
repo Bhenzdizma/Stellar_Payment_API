@@ -2,9 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useHydrateMerchantStore } from "@/lib/merchant-store";
 
 export default function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  useHydrateMerchantStore();
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
