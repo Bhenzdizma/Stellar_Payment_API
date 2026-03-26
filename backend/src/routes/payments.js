@@ -5,9 +5,10 @@ import { randomUUID } from "node:crypto";
 import { findMatchingPayment } from "../lib/stellar.js";
 import { supabase } from "../lib/supabase.js";
 import { validateUuidParam } from "../lib/validate-uuid.js";
-import { paymentZodSchema } from "../lib/request-schemas.js";
+import { paymentSessionZodSchema } from "../lib/request-schemas.js";
 import { createCreatePaymentRateLimit } from "../lib/create-payment-rate-limit.js";
 import { sendWebhook } from "../lib/webhooks.js";
+import { resolveBrandingConfig } from "../lib/branding.js";
 
 const createPaymentRateLimit = createCreatePaymentRateLimit();
 
@@ -28,7 +29,7 @@ function createPaymentsRouter({
    * @swagger
    * /api/create-payment:
    *   post:
-   *     summary: Create a new payment request
+   *     summary: Create a new payment session request
    *     tags: [Payments]
    *     parameters:
    *       - in: header
@@ -67,6 +68,18 @@ function createPaymentsRouter({
    *                 enum: [text, id, hash, return]
    *               webhook_url:
    *                 type: string
+   *               branding_overrides:
+   *                 type: object
+   *                 properties:
+   *                   primary_color:
+   *                     type: string
+   *                     example: "#5ef2c0"
+   *                   secondary_color:
+   *                     type: string
+   *                     example: "#b8ffe2"
+   *                   background_color:
+   *                     type: string
+   *                     example: "#050608"
    *     responses:
    *       201:
    *         description: Payment created
@@ -81,6 +94,8 @@ function createPaymentsRouter({
    *                   type: string
    *                 status:
    *                   type: string
+   *                 branding_config:
+   *                   type: object
    *       200:
    *         description: Duplicate request — cached response returned from idempotency key
    *         content:
@@ -99,15 +114,24 @@ function createPaymentsRouter({
    *       429:
    *         description: Too many requests
    */
-  router.post("/create-payment", createPaymentRateLimit, async (req, res, next) => {
+  async function createSession(req, res, next) {
     try {
-      const body = paymentZodSchema.parse(req.body || {});
+      const body = paymentSessionZodSchema.parse(req.body || {});
 
       const paymentId = randomUUID();
       const now = new Date().toISOString();
       const paymentLinkBase =
         process.env.PAYMENT_LINK_BASE || "http://localhost:3000";
       const paymentLink = `${paymentLinkBase}/pay/${paymentId}`;
+      const resolvedBrandingConfig = resolveBrandingConfig({
+        merchantBranding: req.merchant.branding_config,
+        brandingOverrides: body.branding_overrides,
+      });
+
+      const metadata = body.metadata && typeof body.metadata === "object"
+        ? { ...body.metadata }
+        : {};
+      metadata.branding_config = resolvedBrandingConfig;
 
       const payload = {
         id: paymentId,
@@ -122,7 +146,7 @@ function createPaymentsRouter({
         webhook_url: body.webhook_url || null,
         status: "pending",
         tx_id: null,
-        metadata: body.metadata || null,
+        metadata,
         created_at: now,
       };
 
@@ -137,11 +161,15 @@ function createPaymentsRouter({
         payment_id: paymentId,
         payment_link: paymentLink,
         status: "pending",
+        branding_config: resolvedBrandingConfig,
       });
     } catch (err) {
       next(err);
     }
-  });
+  }
+
+  router.post("/create-payment", createPaymentRateLimit, createSession);
+  router.post("/sessions", createPaymentRateLimit, createSession);
 
   /**
    * @swagger
@@ -174,7 +202,7 @@ function createPaymentsRouter({
       const { data, error } = await supabase
         .from("payments")
         .select(
-          "id, amount, asset, asset_issuer, recipient, description, memo, memo_type, status, tx_id, metadata, created_at",
+          "id, amount, asset, asset_issuer, recipient, description, memo, memo_type, status, tx_id, metadata, created_at, merchants(branding_config)",
         )
         .eq("id", req.params.id)
         .maybeSingle();
@@ -188,7 +216,17 @@ function createPaymentsRouter({
         return res.status(404).json({ error: "Payment not found" });
       }
 
-      res.json({ payment: data });
+      const metadataBranding = data.metadata?.branding_config || null;
+      const merchantBranding = data.merchants?.branding_config || null;
+      const brandingConfig = metadataBranding || merchantBranding || null;
+
+      const response = {
+        ...data,
+        branding_config: brandingConfig,
+      };
+      delete response.merchants;
+
+      res.json({ payment: response });
     } catch (err) {
       next(err);
     }

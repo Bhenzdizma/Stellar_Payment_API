@@ -2,16 +2,21 @@
 
 import { useEffect, useState } from "react";
 import {
-    Bar,
-    BarChart,
-    CartesianGrid,
-    Line,
-    LineChart,
-    ResponsiveContainer,
-    Tooltip,
-    XAxis,
-    YAxis,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
+import {
+  useHydrateMerchantStore,
+  useMerchantApiKey,
+  useMerchantHydrated,
+} from "@/lib/merchant-store";
 
 interface MetricData {
   date: string;
@@ -31,11 +36,10 @@ export default function PaymentMetrics() {
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hydrated, setHydrated] = useState(false);
+  const apiKey = useMerchantApiKey();
+  const hydrated = useMerchantHydrated();
 
-  useEffect(() => {
-    setHydrated(true);
-  }, []);
+  useHydrateMerchantStore();
 
   useEffect(() => {
     if (!hydrated) return;
@@ -44,13 +48,13 @@ export default function PaymentMetrics() {
 
     const fetchMetrics = async () => {
       try {
-        const apiKey = localStorage.getItem("merchant_api_key");
         if (!apiKey) {
           setLoading(false);
           return;
         }
 
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+        const apiUrl =
+          process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
         const response = await fetch(`${apiUrl}/api/metrics/7day`, {
           headers: {
             "x-api-key": apiKey,
@@ -75,7 +79,7 @@ export default function PaymentMetrics() {
     fetchMetrics();
 
     return () => controller.abort();
-  }, [hydrated]);
+  }, [apiKey, hydrated]);
 
   if (loading || !hydrated) {
     return (
@@ -200,7 +204,9 @@ export default function PaymentMetrics() {
       <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur">
         <div className="flex flex-col gap-1">
           <h3 className="font-semibold text-white">Payment Count (7 Days)</h3>
-          <p className="text-xs text-slate-400">Number of transactions per day</p>
+          <p className="text-xs text-slate-400">
+            Number of transactions per day
+          </p>
         </div>
 
         <ResponsiveContainer width="100%" height={CHART_HEIGHT}>

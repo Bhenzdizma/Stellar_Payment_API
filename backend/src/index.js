@@ -114,8 +114,11 @@ app.get("/health", async (req, res) => {
 
 app.use("/api/create-payment", requireApiKeyAuth());
 app.use("/api/create-payment", idempotencyMiddleware);
+app.use("/api/sessions", requireApiKeyAuth());
+app.use("/api/sessions", idempotencyMiddleware);
 app.use("/api/payments", requireApiKeyAuth());
 app.use("/api/rotate-key", requireApiKeyAuth());
+app.use("/api/merchant-branding", requireApiKeyAuth());
 app.use("/api", createPaymentsRouter({ verifyPaymentRateLimit }));
 app.use("/api", merchantsRouter);
 app.use("/api", metricsRouter);

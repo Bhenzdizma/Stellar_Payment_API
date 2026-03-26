@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HEX_COLOR_REGEX } from "./branding.js";
 
 const VALID_MEMO_TYPES = ["text", "id", "hash", "return"];
 export const MINIMUM_XLM_PAYMENT_AMOUNT = 0.01;
@@ -30,8 +31,7 @@ const amountSchema = z.preprocess((value) => {
   invalid_type_error: "Amount must be a positive number",
 }).positive("Amount must be a positive number"));
 
-export const paymentZodSchema = z
-  .object({
+const paymentBaseSchema = z.object({
     amount: amountSchema,
     asset: z
       .string({
@@ -62,8 +62,9 @@ export const paymentZodSchema = z
       return z.string().url().safeParse(value).success;
     }, "webhook_url must be a valid URL"),
     metadata: z.unknown().optional(),
-  })
-  .superRefine((body, ctx) => {
+  });
+
+function applyPaymentValidationRules(body, ctx) {
     if (body.asset === "XLM" && body.amount < MINIMUM_XLM_PAYMENT_AMOUNT) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -103,7 +104,11 @@ export const paymentZodSchema = z
         message: `Invalid memo_type. Must be one of: ${VALID_MEMO_TYPES.join(", ")}`,
       });
     }
-  });
+}
+
+export const paymentZodSchema = paymentBaseSchema.superRefine(
+  applyPaymentValidationRules,
+);
 
 export const registerMerchantZodSchema = z.object({
   email: z
@@ -122,7 +127,50 @@ export const registerMerchantZodSchema = z.object({
 
     return z.string().email().safeParse(value).success;
   }, "Invalid notification_email format"),
+  branding_config: z
+    .object({
+      primary_color: z
+        .string()
+        .trim()
+        .regex(HEX_COLOR_REGEX, "primary_color must be a valid hex color")
+        .optional(),
+      secondary_color: z
+        .string()
+        .trim()
+        .regex(HEX_COLOR_REGEX, "secondary_color must be a valid hex color")
+        .optional(),
+      background_color: z
+        .string()
+        .trim()
+        .regex(HEX_COLOR_REGEX, "background_color must be a valid hex color")
+        .optional(),
+    })
+    .optional(),
 });
+
+export const sessionBrandingSchema = z
+  .object({
+    primary_color: z
+      .string()
+      .trim()
+      .regex(HEX_COLOR_REGEX, "primary_color must be a valid hex color")
+      .optional(),
+    secondary_color: z
+      .string()
+      .trim()
+      .regex(HEX_COLOR_REGEX, "secondary_color must be a valid hex color")
+      .optional(),
+    background_color: z
+      .string()
+      .trim()
+      .regex(HEX_COLOR_REGEX, "background_color must be a valid hex color")
+      .optional(),
+  })
+  .optional();
+
+export const paymentSessionZodSchema = paymentBaseSchema.extend({
+  branding_overrides: sessionBrandingSchema,
+}).superRefine(applyPaymentValidationRules);
 
 export function formatZodError(error) {
   return error.issues?.[0]?.message || "Validation error";

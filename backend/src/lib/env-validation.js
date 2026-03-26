@@ -28,6 +28,9 @@ function validateEnvironmentVariables() {
   const optionalPositiveIntegers = [
     'CREATE_PAYMENT_RATE_LIMIT_MAX',
     'CREATE_PAYMENT_RATE_LIMIT_WINDOW_MS',
+    'LOG_RETENTION_DAYS',
+    'LOG_PURGE_BATCH_SIZE',
+    'LOG_PURGE_MAX_DURATION_MS',
   ];
 
   for (const key of optionalPositiveIntegers) {

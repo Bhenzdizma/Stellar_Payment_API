@@ -4,6 +4,7 @@ import {
   formatZodError,
   MINIMUM_XLM_PAYMENT_AMOUNT,
   paymentZodSchema,
+  paymentSessionZodSchema,
   registerMerchantZodSchema,
 } from "./request-schemas.js";
 
@@ -142,6 +143,51 @@ describe("registerMerchantZodSchema", () => {
         email: "not-an-email",
       })
     ).toThrowError("Invalid email format");
+  });
+
+  it("rejects invalid branding_config colors", () => {
+    expect(() =>
+      registerMerchantZodSchema.parse({
+        email: "merchant@example.com",
+        branding_config: {
+          primary_color: "blue",
+        },
+      })
+    ).toThrowError("primary_color must be a valid hex color");
+  });
+});
+
+describe("paymentSessionZodSchema", () => {
+  it("accepts valid branding_overrides", () => {
+    const result = paymentSessionZodSchema.parse({
+      amount: 10,
+      asset: "XLM",
+      recipient: "GRECIPIENT",
+      branding_overrides: {
+        primary_color: "#abc",
+        secondary_color: "#A1B2C3",
+        background_color: "#000000",
+      },
+    });
+
+    expect(result.branding_overrides).toEqual({
+      primary_color: "#abc",
+      secondary_color: "#A1B2C3",
+      background_color: "#000000",
+    });
+  });
+
+  it("rejects invalid hex values for branding_overrides", () => {
+    expect(() =>
+      paymentSessionZodSchema.parse({
+        amount: 10,
+        asset: "XLM",
+        recipient: "GRECIPIENT",
+        branding_overrides: {
+          primary_color: "#12345",
+        },
+      })
+    ).toThrowError("primary_color must be a valid hex color");
   });
 });
 

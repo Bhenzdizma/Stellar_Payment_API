@@ -1,7 +1,11 @@
 import express from "express";
 import { randomBytes } from "crypto";
 import { supabase } from "../lib/supabase.js";
-import { registerMerchantZodSchema } from "../lib/request-schemas.js";
+import {
+  registerMerchantZodSchema,
+  sessionBrandingSchema,
+} from "../lib/request-schemas.js";
+import { resolveBrandingConfig } from "../lib/branding.js";
 
 const router = express.Router();
 
@@ -140,6 +144,52 @@ router.post("/rotate-key", async (req, res, next) => {
     }
 
     res.json({ api_key: newApiKey });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/merchant-branding", async (req, res, next) => {
+  try {
+    const { data, error } = await supabase
+      .from("merchants")
+      .select("branding_config")
+      .eq("id", req.merchant.id)
+      .maybeSingle();
+
+    if (error) {
+      error.status = 500;
+      throw error;
+    }
+
+    res.json({
+      branding_config: resolveBrandingConfig({
+        merchantBranding: data?.branding_config || null,
+      }),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/merchant-branding", async (req, res, next) => {
+  try {
+    const brandingConfig = sessionBrandingSchema.parse(req.body || {});
+    const resolved = resolveBrandingConfig({ merchantBranding: brandingConfig });
+
+    const { data, error } = await supabase
+      .from("merchants")
+      .update({ branding_config: resolved })
+      .eq("id", req.merchant.id)
+      .select("branding_config")
+      .single();
+
+    if (error) {
+      error.status = 500;
+      throw error;
+    }
+
+    res.json({ branding_config: data.branding_config });
   } catch (err) {
     next(err);
   }
