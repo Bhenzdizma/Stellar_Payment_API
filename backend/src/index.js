@@ -116,15 +116,8 @@ app.use("/api/sessions", requireApiKeyAuth());
 app.use("/api/sessions", idempotencyMiddleware);
 app.use("/api/payments", requireApiKeyAuth());
 app.use("/api/rotate-key", requireApiKeyAuth());
-app.use("/api/webhooks/logs", requireApiKeyAuth());
-app.use("/api/merchant-branding", requireApiKeyAuth());
-app.use("/api/webhook-settings", requireApiKeyAuth());
-app.use("/api/regenerate-webhook-secret", requireApiKeyAuth());
-app.use("/api/audit-logs", requireApiKeyAuth());
-app.use("/api/merchants/rotate-webhook-secret", requireApiKeyAuth());
-app.use("/api", authRouter);
-app.use("/api", createPaymentsRouter({ verifyPaymentRateLimit }));
-app.use("/api", createMerchantsRouter({ merchantRegistrationRateLimit }));
+
+app.use("/api", merchantsRouter);
 app.use("/api", webhooksRouter);
 app.use("/api", metricsRouter);
 app.use("/api", auditRouter);

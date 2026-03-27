@@ -2,7 +2,7 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import { randomBytes } from "crypto";
 import { supabase } from "../lib/supabase.js";
-import { requireApiKeyAuth } from "../lib/auth.js";
+import { requireApiKeyAuth, requireSessionAuth } from "../lib/auth.js";
 import { getMerchantApiUsage } from "../lib/api-usage.js";
 import { z } from "zod";
 import { validateRequest } from "../lib/validation.js";
@@ -553,4 +553,43 @@ function createMerchantsRouter({
   return router;
 }
 
-export default createMerchantsRouter;
+/**
+ * @swagger
+ * /api/merchants/generate-api-key:
+ *   post:
+ *     summary: Generate an API key using session authentication
+ *     tags: [Merchants]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: New API key issued
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 api_key:
+ *                   type: string
+ */
+router.post("/merchants/generate-api-key", requireSessionAuth(), async (req, res, next) => {
+  try {
+    const newApiKey = `sk_${randomBytes(24).toString("hex")}`;
+
+    const { error } = await supabase
+      .from("merchants")
+      .update({ api_key: newApiKey })
+      .eq("id", req.merchant.id);
+
+    if (error) {
+      error.status = 500;
+      throw error;
+    }
+
+    res.json({ api_key: newApiKey });
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;
