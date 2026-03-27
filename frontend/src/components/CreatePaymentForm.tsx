@@ -42,10 +42,28 @@ interface CreatedPayment {
 
 export default function CreatePaymentForm() {
   const t = useTranslations("createPaymentForm");
-  const [amount, setAmount] = useState("");
-  const [asset, setAsset] = useState<"XLM" | "USDC">("XLM");
-  const [recipient, setRecipient] = useState("");
-  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useLocalStorage("payment_amount", "");
+  const [asset, setAsset] = useLocalStorage<"XLM" | "USDC">(
+    "payment_asset",
+    "XLM",
+  );
+  const [recipient, setRecipient] = useLocalStorage("payment_recipient", "");
+  const [description, setDescription] = useLocalStorage(
+    "payment_description",
+    "",
+  );
+  const [useSessionBranding, setUseSessionBranding] = useLocalStorage(
+    "payment_use_branding",
+    false,
+  );
+  const [branding, setBranding] = useLocalStorage(
+    "payment_branding",
+    DEFAULT_BRANDING,
+  );
+  const [selectedTrustedAddress, setSelectedTrustedAddress] = useLocalStorage(
+    "payment_trusted_address",
+    "",
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedPayment | null>(null);
@@ -127,14 +145,6 @@ export default function CreatePaymentForm() {
     setSelectedTrustedAddress("");
 
     // 🧹 clear localStorage
-    localStorage.removeItem("payment_amount");
-    localStorage.removeItem("payment_asset");
-    localStorage.removeItem("payment_recipient");
-    localStorage.removeItem("payment_description");
-    localStorage.removeItem("payment_use_branding");
-    localStorage.removeItem("payment_branding");
-    localStorage.removeItem("payment_trusted_address");
-
     setError(null);
   };
 

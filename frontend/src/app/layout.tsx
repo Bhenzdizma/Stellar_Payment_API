@@ -9,8 +9,13 @@ import CommandPalette from "@/components/CommandPalette";
 import KeyboardShortcuts from "@/components/KeyboardShortcuts";
 import { WalletContextProvider } from "@/lib/wallet-context";
 
-const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
-const spaceMono = Space_Mono({ subsets: ["latin"], weight: ["400", "700"], variable: "--font-mono", display: "swap" });
+const useE2ESystemFonts = process.env.NEXT_PUBLIC_E2E === "1";
+const spaceGrotesk = useE2ESystemFonts
+  ? null
+  : Space_Grotesk({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
+const spaceMono = useE2ESystemFonts
+  ? null
+  : Space_Mono({ subsets: ["latin"], weight: ["400", "700"], variable: "--font-mono", display: "swap" });
 
 export const metadata = {
   title: "Stellar Payment Dashboard",
@@ -23,7 +28,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <html lang={locale} suppressHydrationWarning>
-      <body className={`${spaceGrotesk.variable} ${spaceMono.variable} min-h-screen font-sans`}>
+      <body
+        className={`${spaceGrotesk?.variable ?? ""} ${spaceMono?.variable ?? ""} min-h-screen font-sans`}
+      >
         <NextIntlClientProvider locale={locale} messages={messages}>
           <ThemeProvider>
             <WalletContextProvider>
