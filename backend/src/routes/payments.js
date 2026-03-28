@@ -17,6 +17,9 @@ import { sendWebhook } from "../lib/webhooks.js";
 import { sendReceiptEmail } from "../lib/email.js";
 import { renderReceiptEmail } from "../lib/email-templates.js";
 import { resolveBrandingConfig } from "../lib/branding.js";
+
+import { sendReceiptEmail } from "../lib/email.js";
+
 import {
   connectRedisClient,
   getCachedPayment,
@@ -33,7 +36,12 @@ import {
 } from "../lib/metrics.js";
 import { sanitizeMetadataMiddleware } from "../lib/sanitize-metadata.js";
 import { supabase } from "../lib/supabase.js";
-import { findMatchingPayment, findStrictReceivePaths } from "../lib/stellar.js";
+import {
+  findMatchingPayment,
+  findStrictReceivePaths,
+  getNetworkFeeStats,
+} from "../lib/stellar.js";
+
 
 const createPaymentRateLimit = createCreatePaymentRateLimit();
 
@@ -44,6 +52,8 @@ const defaultVerifyPaymentRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+
 
 function applyPaymentFilters(query, req) {
   const { status, asset, date_from: dateFrom, date_to: dateTo, search } = req.query || {};
@@ -71,6 +81,7 @@ function applyPaymentFilters(query, req) {
   }
   return query;
 }
+
 
 function createPaymentsRouter({
   verifyPaymentRateLimit = defaultVerifyPaymentRateLimit,
@@ -375,6 +386,24 @@ function createPaymentsRouter({
     streamManager.addClient(req.params.id, res);
   });
 
+  router.get("/network-fee", async (req, res, next) => {
+    try {
+      const fee = await getNetworkFeeStats(1);
+      res.json({
+        network_fee: {
+          network: fee.network,
+          horizon_url: fee.horizonUrl,
+          operation_count: fee.operationCount,
+          stroops: fee.totalFeeStroops,
+          xlm: fee.totalFeeXlm,
+          last_ledger_base_fee: fee.lastLedgerBaseFee,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   /**
    * @swagger
    * /api/verify-payment/{id}:
@@ -391,6 +420,10 @@ function createPaymentsRouter({
         let query = supabase
           .from("payments")
           .select(
+
+            "id, amount, asset, asset_issuer, recipient, status, tx_id, memo, memo_type, webhook_url, merchants(webhook_secret, notification_email, business_name)",
+          )
+
             "id, merchant_id, amount, asset, asset_issuer, recipient, status, tx_id, memo, memo_type, webhook_url, merchants(webhook_secret, webhook_version, webhook_custom_headers, notification_email, email)"
           );
 
@@ -399,6 +432,7 @@ function createPaymentsRouter({
         }
 
         const { data, error } = await query
+
           .eq("id", req.params.id)
           .is("deleted_at", null)
           .maybeSingle();
@@ -501,6 +535,15 @@ function createPaymentsRouter({
           data.id,
           data.merchants?.webhook_custom_headers ?? {}
         );
+        sendReceiptEmail({
+          to: data.merchants?.notification_email,
+          businessName: data.merchants?.business_name || "Merchant",
+          amount: data.amount,
+          asset: data.asset,
+          recipient: data.recipient,
+          txId: match.transaction_hash,
+          paymentId: data.id,
+        });
 
         if (!webhookResult.ok && !webhookResult.skipped) {
           console.warn("Webhook failed", webhookResult);
