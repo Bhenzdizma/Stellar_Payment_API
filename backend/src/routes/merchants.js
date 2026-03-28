@@ -12,7 +12,6 @@ import {
   webhookSettingsSchema,
   testWebhookSchema,
 } from "../lib/request-schemas.js";
-import { z } from "zod";
 
 const defaultMerchantRegistrationRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
@@ -554,10 +553,7 @@ function createMerchantsRouter({
     }
   });
 
-  return router;
-}
-
-/**
+  /**
  * @swagger
  * /api/merchants/generate-api-key:
  *   post:
@@ -802,4 +798,7 @@ router.post("/regenerate-webhook-secret", async (req, res, next) => {
   }
 });
 
-export default router;
+  return router;
+}
+
+export default createMerchantsRouter;

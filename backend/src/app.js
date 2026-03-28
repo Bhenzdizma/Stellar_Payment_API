@@ -7,7 +7,7 @@ import { httpLogger, logger } from "./lib/logger.js";
 import { createSwaggerSpec } from "./swagger.js";
 
 import createPaymentsRouter from "./routes/payments.js";
-import merchantsRouter from "./routes/merchants.js";
+import createMerchantsRouter from "./routes/merchants.js";
 import metricsRouter from "./routes/metrics.js";
 import webhooksRouter from "./routes/webhooks.js";
 import prometheusRouter from "./routes/prometheus.js";

@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { randomUUID } from "node:crypto";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import { paymentService } from "../services/paymentService.js";
@@ -26,8 +27,11 @@ import {
   paymentCreatedCounter,
   paymentConfirmedCounter,
   paymentConfirmationLatency,
+  paymentFailedCounter,
 } from "../lib/metrics.js";
 import { sanitizeMetadataMiddleware } from "../lib/sanitize-metadata.js";
+import { supabase } from "../lib/supabase.js";
+import { findMatchingPayment } from "../lib/stellar.js";
 
 const createPaymentRateLimit = createCreatePaymentRateLimit();
 
@@ -38,6 +42,30 @@ const defaultVerifyPaymentRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+function applyPaymentFilters(query, req) {
+  const { status, asset, date_from: dateFrom, date_to: dateTo, search } = req.query || {};
+
+  if (typeof status === "string" && status.length > 0) {
+    query = query.eq("status", status);
+  }
+  if (typeof asset === "string" && asset.length > 0) {
+    query = query.eq("asset", asset);
+  }
+  if (typeof dateFrom === "string" && dateFrom.length > 0) {
+    query = query.gte("created_at", `${dateFrom}T00:00:00.000Z`);
+  }
+  if (typeof dateTo === "string" && dateTo.length > 0) {
+    query = query.lte("created_at", `${dateTo}T23:59:59.999Z`);
+  }
+  if (typeof search === "string" && search.trim().length > 0) {
+    const term = search.trim().replaceAll(",", "\\,");
+    query = query.or(
+      `id.ilike.%${term}%,description.ilike.%${term}%,recipient.ilike.%${term}%`
+    );
+  }
+  return query;
+}
 
 function createPaymentsRouter({
   verifyPaymentRateLimit = defaultVerifyPaymentRateLimit,
@@ -811,8 +839,6 @@ function createPaymentsRouter({
    *         description: ANCHOR_DOMAIN not configured
    *       502:
    *         description: Anchor request failed
-   */
-   *     tags: [Payments]
    */
   router.get(
     "/path-payment-quote/:id",
