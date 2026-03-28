@@ -13,9 +13,11 @@ test.describe("Create Payment Visual Regression", () => {
   });
 
   test("create payment form remains visually stable", async ({ page }) => {
-    const formShell = page.locator("main");
+    const heading = page.getByRole("heading", { name: "Create Payment Link" });
+    const formShell = heading.locator("xpath=ancestor::main[1]");
+
+    await expect(heading).toBeVisible();
     await expect(formShell).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Create Payment Link" })).toBeVisible();
     await expect(page.locator("select#trusted-address")).toBeVisible();
 
     const noOverflow = await expectNoHorizontalOverflow(page);
