@@ -3,6 +3,7 @@ import { merchantService } from "../services/merchantService.js";
 import { requireApiKeyAuth } from "../lib/auth.js";
 import { z } from "zod";
 import { queueBulkWebhookRetries } from "../lib/webhook-retries.js";
+import { generatePaginationLinks } from "../lib/pagination-links.js";
 
 const router = express.Router();
 const bulkRetrySchema = z.object({
@@ -84,6 +85,15 @@ const bulkRetrySchema = z.object({
  *                       type: integer
  *                     totalPages:
  *                       type: integer
+ *                 links:
+ *                   type: object
+ *                   properties:
+ *                     next:
+ *                       type: string
+ *                       description: URL to the next page
+ *                     previous:
+ *                       type: string
+ *                       description: URL to the previous page
  *       401:
  *         description: Unauthorized - invalid or missing API key
  *       500:
@@ -151,7 +161,8 @@ router.get("/webhooks/logs", async (req, res, next) => {
         limit,
         total: count || 0,
         totalPages: Math.ceil((count || 0) / limit)
-      }
+      },
+      ...generatePaginationLinks(req, page, limit, Math.ceil((count || 0) / limit)),
     });
   } catch (err) {
     next(err);
