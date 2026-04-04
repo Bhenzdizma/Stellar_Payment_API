@@ -2,9 +2,9 @@ import Link from "next/link";
 import { docsManifest } from "@/lib/docs-manifest";
 
 const DOC_TAGS: Record<string, { label: string; color: string }> = {
-  "api-guide":              { label: "Core API",    color: "bg-[#F0F0F0] text-[#6B6B6B]" },
+  "api-guide":              { label: "Path 01 · Subscription",    color: "bg-[#F0F0F0] text-[#6B6B6B]" },
   "hmac-signatures":        { label: "Security",    color: "bg-[#F0F0F0] text-[#6B6B6B]" },
-  "x402-agentic-payments":  { label: "New · x402",  color: "bg-[var(--pluto-100)] text-[var(--pluto-700)]" },
+  "x402-agentic-payments":  { label: "Path 02 · x402",  color: "bg-[var(--pluto-100)] text-[var(--pluto-700)]" },
 };
 
 export default function DocsIndexPage() {
@@ -15,7 +15,7 @@ export default function DocsIndexPage() {
         <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-[var(--pluto-500)]">Documentation</p>
         <h1 className="mt-3 text-3xl font-bold text-[#0A0A0A] tracking-tight">PLUTO Developer Guides</h1>
         <p className="mt-3 max-w-2xl text-sm font-medium leading-relaxed text-[#6B6B6B]">
-          Everything you need to integrate PLUTO — from creating payment links to verifying webhooks and building autonomous AI agents that pay per API call.
+          Choose your integration path: traditional subscription/API-key flow or x402 pay-per-request. Each guide includes practical implementation steps and code samples.
         </p>
       </div>
 
@@ -58,7 +58,7 @@ export default function DocsIndexPage() {
           {[
             { label: "x402 Live Demo", href: "/x402-demo", desc: "Watch an agent pay autonomously" },
             { label: "API Docs (Swagger)", href: "/api-docs", desc: "Interactive API explorer" },
-            { label: "Register as Merchant", href: "/register", desc: "Get your API key" },
+            { label: "Register as Merchant", href: "/register", desc: "Path 01: get your API key" },
             { label: "Dashboard", href: "/dashboard", desc: "Manage payments" },
           ].map(item => (
             <Link key={item.href} href={item.href}

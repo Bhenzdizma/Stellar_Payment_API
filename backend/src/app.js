@@ -22,6 +22,8 @@ import { requireApiKeyAuth } from "./lib/auth.js";
 import { isHorizonReachable } from "./lib/stellar.js";
 import { supabase } from "./lib/supabase.js";
 import { pool } from "./lib/db.js";
+import { x402Middleware } from "./middleware/x402.js";
+import { x402AuthBridge } from "./middleware/x402-auth.js";
 
 import { idempotencyMiddleware } from "./lib/idempotency.js";
 import { setupSentryErrorHandler } from "./lib/sentry.js";
@@ -212,8 +214,34 @@ export async function createApp({ redisClient }) {
     store: createRedisRateLimitStore({ client: redisClient }),
   });
 
-  app.use("/api/create-payment", requireApiKeyAuth(), idempotencyMiddleware);
-  app.use("/api/sessions", requireApiKeyAuth(), idempotencyMiddleware);
+  // x402 pay-per-request on payment creation endpoints (custom middleware flow)
+  const x402Provider = process.env.X402_PROVIDER_PUBLIC_KEY;
+  const x402Enabled = Boolean(x402Provider && process.env.X402_JWT_SECRET);
+  const x402CreatePaymentAmount = process.env.X402_CREATE_PAYMENT_AMOUNT || "0.01";
+
+  if (x402Enabled) {
+    const requireCreatePaymentCharge = x402Middleware({
+      amount: x402CreatePaymentAmount,
+      recipient: x402Provider,
+      memo_prefix: "pluto-create",
+    });
+
+    app.use("/api/create-payment", requireCreatePaymentCharge);
+    app.use("/api/sessions", requireCreatePaymentCharge);
+  }
+
+  app.use(
+    "/api/create-payment",
+    x402Enabled ? x402AuthBridge() : (_req, _res, next) => next(),
+    requireApiKeyAuth(),
+    idempotencyMiddleware
+  );
+  app.use(
+    "/api/sessions",
+    x402Enabled ? x402AuthBridge() : (_req, _res, next) => next(),
+    requireApiKeyAuth(),
+    idempotencyMiddleware
+  );
   app.use("/api/payments", requireApiKeyAuth(), idempotencyMiddleware);
   app.use("/api/rotate-key", requireApiKeyAuth(), idempotencyMiddleware);
   app.use("/api/merchant-branding", requireApiKeyAuth(), idempotencyMiddleware);

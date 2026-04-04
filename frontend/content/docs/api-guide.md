@@ -1,26 +1,39 @@
-# How to use the API
+# Subscription API Guide
 
-This guide mirrors the routes currently implemented in the backend of this repository.
+This is **Path 01** for teams that want the traditional SaaS flow:
 
-## Base URL
+- create a merchant account
+- use `x-api-key` for authenticated API calls
+- manage webhooks, settings, and dashboard operations
 
-During local development, the frontend defaults to:
+If you want pay-per-request without merchant registration for create calls, use **Path 02** in `/docs/x402-agentic-payments`.
 
-```text
-http://localhost:4000
-```
+---
 
-## 1. Register a merchant
+## What to prepare
 
-Create a merchant and receive both an API key and a webhook secret.
+Before integrating, ensure you have:
 
-**Endpoint**
+- `API_BASE_URL` (for local: `http://localhost:4000`)
+- merchant credentials from `POST /api/register-merchant`
+- secure backend environment variables:
+  - `PLUTO_API_KEY`
+  - `PLUTO_WEBHOOK_SECRET`
+- a Stellar recipient address for payment intents
+
+Important:
+- Keep API keys on your backend only.
+- Your frontend should call your own backend, not PLUTO directly with secret credentials.
+
+---
+
+## Step-by-step implementation
+
+## 1. Register merchant
 
 ```http
 POST /api/register-merchant
 ```
-
-**Example**
 
 ```bash
 curl -X POST http://localhost:4000/api/register-merchant \
@@ -32,33 +45,25 @@ curl -X POST http://localhost:4000/api/register-merchant \
   }'
 ```
 
-**Response fields to save**
+Save these fields:
 
+- `merchant.id`
 - `merchant.api_key`
 - `merchant.webhook_secret`
-- `merchant.id`
 
-## 2. Create a payment link
-
-All merchant-protected endpoints use the `x-api-key` header.
-
-**Endpoint**
+## 2. Create payment link (server-side)
 
 ```http
 POST /api/create-payment
 ```
 
-**Headers**
+Headers:
 
 ```text
 x-api-key: sk_...
 Content-Type: application/json
-Idempotency-Key: 3f0d65e1-27b8-4b28-8f2f-8a6f9fd9d7d9
+Idempotency-Key: <uuid-optional-but-recommended>
 ```
-
-`Idempotency-Key` is optional, but recommended. The backend caches successful duplicate requests for 24 hours.
-
-**Example**
 
 ```bash
 curl -X POST http://localhost:4000/api/create-payment \
@@ -67,104 +72,160 @@ curl -X POST http://localhost:4000/api/create-payment \
   -H "Idempotency-Key: 3f0d65e1-27b8-4b28-8f2f-8a6f9fd9d7d9" \
   -d '{
     "amount": 25,
-    "asset": "XLM",
+    "asset": "USDC",
+    "asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
     "recipient": "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
     "description": "Order #2048",
     "webhook_url": "https://merchant.example/webhooks/pluto"
   }'
 ```
 
-**Typical success response**
+Typical response:
 
 ```json
 {
   "payment_id": "6aa64d44-faf1-41f0-a7e7-c8f9cce62f2f",
   "payment_link": "http://localhost:3000/pay/6aa64d44-faf1-41f0-a7e7-c8f9cce62f2f",
-  "status": "pending",
-  "branding_config": {
-    "primary_color": "#00F5D4",
-    "secondary_color": "#6C5CE7",
-    "background_color": "#0B0F1A"
-  }
+  "status": "pending"
 }
 ```
 
-## 3. Check payment status
+## 3. Redirect user to `payment_link`
 
-Use the public status endpoint to read the latest payment state.
+Use the returned checkout URL in your frontend.
 
-**Endpoint**
+## 4. Track status
+
+Use public status polling:
 
 ```http
 GET /api/payment-status/:id
 ```
 
-**Example**
-
-```bash
-curl http://localhost:4000/api/payment-status/6aa64d44-faf1-41f0-a7e7-c8f9cce62f2f
-```
-
-## 4. Verify the payment on Stellar
-
-After the customer submits payment, verify it against the Stellar network.
-
-**Endpoint**
+And/or merchant verification call:
 
 ```http
 POST /api/verify-payment/:id
 ```
 
-If the payment is found, the API marks it as `confirmed`, stores the `tx_id`, emits the merchant socket event, and sends the webhook.
+## 5. Process webhooks
 
-**Example**
+Use your webhook endpoint and verify signatures using `PLUTO_WEBHOOK_SECRET`.
 
-```bash
-curl -X POST http://localhost:4000/api/verify-payment/6aa64d44-faf1-41f0-a7e7-c8f9cce62f2f
-```
+For verification details see `/docs/hmac-signatures`.
 
-## 5. List merchant payments
+---
 
-Read recent payments for the authenticated merchant.
+## Frontend framework integration samples
 
-**Endpoint**
+These samples follow the recommended architecture:
 
-```http
-GET /api/payments?page=1&limit=10
-```
+`Frontend -> Your backend -> PLUTO API`
 
-**Headers**
+### Next.js (App Router)
 
-```text
-x-api-key: sk_...
-```
+`app/api/checkout/route.ts`
 
-## 6. Test webhook delivery
+```ts
+import { NextResponse } from "next/server";
 
-If you already stored a webhook URL for the merchant, you can send a signed test event using:
+const API_URL = process.env.PLUTO_API_URL || "http://localhost:4000";
 
-```http
-POST /api/webhooks/test
-```
+export async function POST(req: Request) {
+  const body = await req.json();
 
-If you want to ping an arbitrary URL directly, the repo also exposes:
+  const response = await fetch(`${API_URL}/api/create-payment`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.PLUTO_API_KEY!,
+      "Idempotency-Key": crypto.randomUUID(),
+    },
+    body: JSON.stringify({
+      amount: body.amount,
+      asset: "USDC",
+      recipient: process.env.MERCHANT_STELLAR_RECIPIENT,
+      metadata: { order_id: body.orderId },
+    }),
+  });
 
-```http
-POST /api/test-webhook
-```
-
-with:
-
-```json
-{
-  "webhook_url": "https://merchant.example/webhooks/pluto"
+  const data = await response.json();
+  return NextResponse.json(data, { status: response.status });
 }
 ```
 
-## Notes
+### React (Vite) + Express backend
 
-- Merchant auth in this codebase uses `x-api-key`, not `Authorization: Bearer ...`.
-- The create-payment flow supports optional `webhook_url`, `memo`, `memo_type`, and `branding_overrides`.
-- Webhook events are signed with the merchant webhook secret using `HMAC-SHA256`.
+`server/routes/checkout.js`
 
-Continue with the HMAC guide in `/docs/hmac-signatures` to verify those webhook requests correctly.
+```js
+import express from "express";
+
+const router = express.Router();
+const API_URL = process.env.PLUTO_API_URL || "http://localhost:4000";
+
+router.post("/checkout", async (req, res) => {
+  const r = await fetch(`${API_URL}/api/create-payment`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.PLUTO_API_KEY,
+      "Idempotency-Key": crypto.randomUUID(),
+    },
+    body: JSON.stringify({
+      amount: req.body.amount,
+      asset: "USDC",
+      recipient: process.env.MERCHANT_STELLAR_RECIPIENT,
+      metadata: { cart_id: req.body.cartId },
+    }),
+  });
+
+  const data = await r.json();
+  res.status(r.status).json(data);
+});
+
+export default router;
+```
+
+### Vue/Nuxt 3 server route
+
+`server/api/checkout.post.ts`
+
+```ts
+export default defineEventHandler(async (event) => {
+  const body = await readBody(event);
+  const config = useRuntimeConfig();
+
+  const response = await $fetch.raw(`${config.public.plutoApiUrl}/api/create-payment`, {
+    method: "POST",
+    headers: {
+      "x-api-key": config.plutoApiKey,
+      "Idempotency-Key": crypto.randomUUID(),
+    },
+    body: {
+      amount: body.amount,
+      asset: "USDC",
+      recipient: config.merchantRecipient,
+      metadata: { order_id: body.orderId },
+    },
+  });
+
+  return response._data;
+});
+```
+
+---
+
+## Common mistakes to avoid
+
+- Sending `x-api-key` from browser code.
+- Reusing one idempotency key across different orders.
+- Forgetting to store `payment_id` with your internal order ID.
+- Not validating webhook signatures.
+
+---
+
+## Related guides
+
+- `/docs/x402-agentic-payments` for Path 02 (pay-per-request)
+- `/docs/hmac-signatures` for webhook verification

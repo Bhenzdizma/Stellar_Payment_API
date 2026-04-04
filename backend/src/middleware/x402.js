@@ -1,14 +1,14 @@
 /**
  * x402 Payment Required middleware for PLUTO.
  *
- * Protects any Express route with a per-request USDC micropayment on Stellar.
- * When an agent hits a protected endpoint without a valid payment token,
- * it receives HTTP 402 with full payment instructions.
+ * Custom implementation using standard Stellar USDC transfers.
+ * Works with any Stellar wallet — no Soroban contract account needed.
  *
  * Flow:
- *   Agent → GET /protected → 402 (payment details)
- *   Agent → pays USDC on Stellar → POST /api/verify-x402 → JWT token
- *   Agent → GET /protected + X-Payment-Token: <jwt> → 200 (data)
+ *   1. Client hits protected endpoint → gets 402 with payment details
+ *   2. Client sends USDC on Stellar with the provided memo
+ *   3. Client calls POST /api/verify-x402 { tx_hash } → gets JWT
+ *   4. Client retries with X-Payment-Token: <jwt> → gets access
  */
 
 import { createHmac, randomUUID } from "node:crypto";
@@ -21,7 +21,7 @@ const USDC_ISSUER = process.env.USDC_ISSUER ||
  * Create x402 middleware.
  *
  * @param {object} config
- * @param {string} config.amount          - USDC amount required (e.g. "0.10")
+ * @param {string} config.amount          - USDC amount required (e.g. "0.01")
  * @param {string} config.recipient       - Provider's Stellar address (G...)
  * @param {string} [config.asset]         - Asset code, defaults to "USDC"
  * @param {string} [config.plutoVerifyUrl] - URL of /api/verify-x402
@@ -32,7 +32,7 @@ export function x402Middleware(config) {
     amount,
     recipient,
     asset = "USDC",
-    plutoVerifyUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/api/verify-x402`,
+    plutoVerifyUrl = `${process.env.PAYMENT_LINK_BASE?.replace(":3000", ":4000") || "http://localhost:4000"}/api/verify-x402`,
     memo_prefix = "x402",
   } = config;
 
@@ -47,7 +47,6 @@ export function x402Middleware(config) {
     if (token) {
       try {
         const payload = jwt.verify(token, jwtSecret);
-        // Attach payment info to request for downstream handlers
         req.x402 = payload;
         return next();
       } catch {
@@ -55,9 +54,24 @@ export function x402Middleware(config) {
       }
     }
 
-    // Generate a unique memo for this specific request
-    const requestId = randomUUID().replace(/-/g, "").slice(0, 16);
-    const memo = `${memo_prefix}-${requestId}`;
+    const requestId = randomUUID().replace(/-/g, "");
+    const separator = "-";
+    const maxMemoBytes = 28;
+    const minIdBytes = 4;
+
+    let memoPrefix = String(memo_prefix || "x402");
+    const separatorBytes = Buffer.byteLength(separator, "utf8");
+    const maxPrefixBytes = Math.max(1, maxMemoBytes - separatorBytes - minIdBytes);
+
+    // Trim overly long prefixes so we can always include an id segment.
+    while (Buffer.byteLength(memoPrefix, "utf8") > maxPrefixBytes) {
+      memoPrefix = memoPrefix.slice(0, -1);
+    }
+
+    const prefixBytes = Buffer.byteLength(memoPrefix, "utf8");
+    const maxIdBytes = Math.max(minIdBytes, maxMemoBytes - prefixBytes - separatorBytes);
+    const idPart = requestId.slice(0, maxIdBytes);
+    const memo = `${memoPrefix}${separator}${idPart}`;
 
     return res.status(402).json({
       x402: true,

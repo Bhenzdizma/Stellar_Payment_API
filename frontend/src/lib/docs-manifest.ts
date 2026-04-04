@@ -8,9 +8,9 @@ export interface DocEntry {
 export const docsManifest: DocEntry[] = [
   {
     slug: "api-guide",
-    title: "How to use the API",
+    title: "Subscription API Guide",
     description:
-      "Register a merchant, create payment links, verify payments, and work with API key auth.",
+      "Traditional merchant integration: register, use API keys, create payment links, and manage lifecycle/webhooks.",
     filename: "api-guide.md",
   },
   {

@@ -227,6 +227,39 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 400;
 }
 
+.ide-code {
+  border-top: 1px solid #E8E8E8;
+  background: #0B1020;
+  color: #CDE3FF;
+  font-size: 0.82rem;
+  line-height: 1.7;
+}
+
+.ide-code code {
+  font-family: "Inconsolata", monospace;
+}
+
+.docs-prose .token.comment,
+.ide-code .token.comment { color: #6E7C99; }
+.docs-prose .token.punctuation,
+.ide-code .token.punctuation { color: #9CB4E6; }
+.docs-prose .token.string,
+.ide-code .token.string { color: #9AE6B4; }
+.docs-prose .token.number,
+.docs-prose .token.boolean,
+.ide-code .token.number,
+.ide-code .token.boolean { color: #F6BD60; }
+.docs-prose .token.keyword,
+.ide-code .token.keyword { color: #7AA2F7; }
+.docs-prose .token.function,
+.ide-code .token.function { color: #7DCFFF; }
+.docs-prose .token.operator,
+.ide-code .token.operator { color: #C0CAF5; }
+.docs-prose .token.property,
+.ide-code .token.property { color: #E0AF68; }
+.docs-prose .token.class-name,
+.ide-code .token.class-name { color: #BB9AF7; }
+
 /* Tables */
 .docs-prose table {
   width: 100%;

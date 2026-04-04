@@ -4,6 +4,9 @@ import GuestGuard from "@/components/GuestGuard";
 import SystemStatus from "@/components/SystemStatus";
 import Link from "next/link";
 import { useState } from "react";
+import Prism from "prismjs";
+import "prismjs/components/prism-bash";
+import "prismjs/components/prism-json";
 
 const FEATURES = [
   {
@@ -27,7 +30,7 @@ const FEATURES = [
 ];
 
 const CODE_REQUEST = `curl -X POST https://api.pluto.io/v1/create-payment \\
-  -H "Authorization: Bearer sk_live_4eC39..." \\
+  -H "x-api-key: sk_live_4eC39..." \\
   -H "Content-Type: application/json" \\
   -d '{
     "amount": "25.00",
@@ -37,13 +40,35 @@ const CODE_REQUEST = `curl -X POST https://api.pluto.io/v1/create-payment \\
   }'`;
 
 const CODE_RESPONSE = `{
-  "id": "pay_9xKp2mVbQw",
+  "payment_id": "6aa64d44-faf1-41f0-a7e7-c8f9cce62f2f",
   "status": "pending",
   "amount": "25.00",
   "asset": "USDC",
-  "payment_url": "https://pluto.io/pay/pay_9xKp2mVbQw",
-  "expires_at": "2025-08-15T12:30:00Z"
+  "payment_link": "https://pluto.io/pay/6aa64d44-faf1-41f0-a7e7-c8f9cce62f2f"
 }`;
+
+function HighlightedCode({
+  code,
+  language,
+}: {
+  code: string;
+  language: "bash" | "json";
+}) {
+  const highlighted = Prism.highlight(
+    code,
+    Prism.languages[language] || Prism.languages.markup,
+    language
+  );
+
+  return (
+    <pre className="ide-code overflow-x-auto p-8">
+      <code
+        className={`language-${language}`}
+        dangerouslySetInnerHTML={{ __html: highlighted }}
+      />
+    </pre>
+  );
+}
 
 function HeroSection() {
   return (
@@ -170,6 +195,59 @@ function HowItWorksSection() {
   );
 }
 
+function IntegrationModesSection() {
+  return (
+    <div className="mx-auto max-w-7xl px-6 py-24 lg:py-32">
+      <div className="mb-12 text-center">
+        <p className="mb-4 font-bold text-[10px] uppercase tracking-[0.4em] text-[#6B6B6B]">Choose Your Mode</p>
+        <h2 className="mx-auto max-w-4xl text-4xl font-bold leading-[1.1] text-[#0A0A0A] sm:text-6xl">
+          Two ways to integrate PLUTO
+        </h2>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-[2rem] border border-[#E8E8E8] bg-white p-8 shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-[#6B6B6B]">Path 01</p>
+          <h3 className="mt-3 text-3xl font-bold tracking-tight text-[#0A0A0A]">Subscription + API Key</h3>
+          <p className="mt-4 text-sm text-[#6B6B6B]">
+            Standard merchant flow. Register, get API key, manage webhooks, analytics, and dashboard operations.
+          </p>
+          <ul className="mt-6 flex flex-col gap-2 text-[10px] font-bold uppercase tracking-widest text-[#6B6B6B]">
+            <li>Register merchant</li>
+            <li>Create payment links</li>
+            <li>Use full merchant feature set</li>
+          </ul>
+          <Link
+            href="/docs/api-guide"
+            className="mt-8 inline-flex items-center gap-2 rounded-xl border border-[#E8E8E8] px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-[#0A0A0A] transition-colors hover:bg-[#F5F5F5]"
+          >
+            View Subscription Guide →
+          </Link>
+        </div>
+
+        <div className="rounded-[2rem] border border-[var(--pluto-200)] bg-[var(--pluto-50)] p-8 shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-[var(--pluto-600)]">Path 02</p>
+          <h3 className="mt-3 text-3xl font-bold tracking-tight text-[var(--pluto-800)]">x402 Pay-per-request</h3>
+          <p className="mt-4 text-sm text-[var(--pluto-700)]">
+            No registration required for paid create-payment calls. Your backend pays USDC per request and retries with x402 token.
+          </p>
+          <ul className="mt-6 flex flex-col gap-2 text-[10px] font-bold uppercase tracking-widest text-[var(--pluto-700)]">
+            <li>Handle 402 challenge</li>
+            <li>Pay on Stellar</li>
+            <li>Retry with payment token</li>
+          </ul>
+          <Link
+            href="/docs/x402-agentic-payments"
+            className="mt-8 inline-flex items-center gap-2 rounded-xl bg-[var(--pluto-500)] px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-white transition-colors hover:bg-[var(--pluto-600)]"
+          >
+            View x402 Guide →
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CodeSnippetSection() {
   const [tab, setTab] = useState<"request" | "response">("request");
 
@@ -212,11 +290,10 @@ function CodeSnippetSection() {
               ))}
             </div>
           </div>
-          <div className="overflow-x-auto p-8">
-            <pre className="font-mono text-[13px] leading-relaxed text-[#0A0A0A]">
-              <code>{tab === "request" ? CODE_REQUEST : CODE_RESPONSE}</code>
-            </pre>
-          </div>
+          <HighlightedCode
+            code={tab === "request" ? CODE_REQUEST : CODE_RESPONSE}
+            language={tab === "request" ? "bash" : "json"}
+          />
         </div>
       </div>
     </div>
@@ -340,6 +417,7 @@ export default function Home() {
     <GuestGuard>
       <main className="relative min-h-screen bg-white overflow-x-hidden">
         <HeroSection />
+        <IntegrationModesSection />
         <FeaturesSection />
         <HowItWorksSection />
         <CodeSnippetSection />

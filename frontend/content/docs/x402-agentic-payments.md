@@ -6,21 +6,484 @@ No subscriptions. No API keys. Just crypto.
 
 ---
 
-## What is x402?
+## Path 02 summary (keyless + paid)
 
-x402 is an HTTP-native payment protocol. When a client hits a protected endpoint without payment, the server returns **HTTP 402 Payment Required** with full payment instructions. The client pays on-chain, gets a short-lived access token, and retries the request.
+In this mode, developers can create payment links through x402-protected endpoints **without merchant registration**, by paying the per-request fee.
+
+For this project, that applies to:
+
+- `POST /api/create-payment`
+- `POST /api/sessions`
+
+They pay, verify, retry with `X-Payment-Token`, and get access.
+
+Still API-key protected (merchant mode required):
+
+- `GET /api/payments`
+- merchant settings/branding/webhook management
+- key rotation and dashboard management endpoints
+
+Use `/docs/api-guide` if you need full merchant account capabilities.
+
+---
+
+## Integration checklist (what you must provide)
+
+Before integration, make sure these are in place.
+
+### On the PLUTO backend (service provider)
+
+- `X402_PROVIDER_PUBLIC_KEY` — Stellar address that receives x402 fees
+- `X402_JWT_SECRET` — secret used to sign short-lived access tokens
+- `USDC_ISSUER` — USDC issuer on the selected network
+- `STELLAR_NETWORK` + `STELLAR_HORIZON_URL` — network consistency for verification
+
+Optional but recommended:
+
+- `X402_CREATE_PAYMENT_AMOUNT` — fee per call (defaults to `0.01`)
+- `X402_TOKEN_EXPIRY_SECONDS` — token TTL (defaults to `60`)
+
+### On your app/backend (the API consumer)
+
+- A funded Stellar wallet or signer that can send USDC
+- USDC trustline configured for that wallet
+- Logic to:
+  1. detect `402 Payment Required`
+  2. send on-chain payment using the exact challenge fields
+  3. call `POST /api/verify-x402`
+  4. retry the original request with `X-Payment-Token`
+
+Important:
+- Use your **server/backend** for this flow, not a public browser client.
+- Use the exact `amount`, `recipient`, and `memo` from the 402 payload.
+- Stellar text memos are max 28 bytes; do not alter or reformat the provided memo.
+
+---
+
+## Who pays, who receives
+
+Understanding the money flow is important before you integrate.
+
+**Who pays:** The **developer or AI agent** calling the PLUTO API. If you've integrated PLUTO as a payment gateway in your ecommerce project, your backend (or an AI agent acting on your behalf) pays a small USDC fee per API call.
+
+**Who receives:** **PLUTO** — the API provider. The `X402_PROVIDER_PUBLIC_KEY` in the server config is the Stellar address that receives all x402 payments. Money flows directly on-chain — PLUTO never holds funds in escrow.
 
 ```
-Client → GET /api/demo/protected
-       ← 402 { amount, recipient, memo, verify_url }
-Client → sends USDC on Stellar with memo
-Client → POST /api/verify-x402 { tx_hash }
-       ← { access_token: "eyJ..." }
-Client → GET /api/demo/protected + X-Payment-Token: eyJ...
-       ← 200 { data }
+Your backend / AI agent
+        ↓  pays 0.01 USDC on Stellar
+PLUTO's Stellar wallet (X402_PROVIDER_PUBLIC_KEY)
+        ↓  issues short-lived JWT
+Your backend retries the API call with token
+        ↓  gets the response
 ```
 
-Money flows **directly** from the agent's Stellar wallet to the API provider's wallet. PLUTO never holds funds — it only verifies the payment happened on Horizon.
+---
+
+## Which endpoints are charged
+
+Not every endpoint costs money. Here's the breakdown:
+
+### Charged endpoints
+
+| Endpoint | Cost | Why |
+|---|---|---|
+| `POST /api/create-payment` | **0.01 USDC** | Core value action — creates a payment link |
+| `POST /api/sessions` | **0.01 USDC** | Alias of create-payment; same value action |
+
+### Always free
+
+| Endpoint | Why free |
+|---|---|
+| `GET /api/payment-status/:id` | Customers poll this during checkout — charging would break the UX |
+| `POST /api/verify-payment/:id` | Internal verification — must be free |
+| `GET /api/stream/:id` | Real-time SSE for checkout page |
+| `GET /health` | Infrastructure monitoring |
+| `POST /api/register-merchant` | Onboarding — friction kills signups |
+| `POST /api/verify-x402` | The verification endpoint itself must be free |
+
+---
+
+## Step-by-step integration (production flow)
+
+### Step 1: Choose auth mode for your deployment
+
+You have two valid options:
+
+- **x402-only mode:** no merchant registration required for x402-charged endpoints
+- **hybrid mode:** register merchant and also send `x-api-key` with requests
+
+For hybrid mode, use `POST /api/register-merchant` and store:
+
+- `merchant.api_key`
+- `merchant.webhook_secret`
+- `merchant.id`
+
+### Step 2: Call create-payment from your backend
+
+Call one of:
+
+- `POST /api/create-payment`
+- `POST /api/sessions`
+
+Send your payment payload. Add `x-api-key` only if you run hybrid mode.
+
+If the call returns `201/200`, continue normally.
+If it returns `402`, continue to step 3.
+
+### Step 3: Read x402 challenge
+
+From the `402` response body read:
+
+- `amount`
+- `recipient`
+- `memo`
+- `asset_issuer`
+- `verify_url`
+
+### Step 4: Send Stellar payment
+
+Send USDC payment on Stellar using the exact challenge values:
+
+- destination = `recipient`
+- amount = `amount`
+- memo text = `memo`
+- asset issuer = `asset_issuer`
+
+Capture `tx_hash`.
+
+### Step 5: Verify payment
+
+Call `POST /api/verify-x402`:
+
+```json
+{
+  "tx_hash": "your_tx_hash",
+  "expected_amount": "0.01",
+  "expected_recipient": "G...from_402_payload",
+  "memo": "memo_from_402_payload"
+}
+```
+
+Save `access_token` from the response.
+
+### Step 6: Retry original API call
+
+Retry the same request with:
+
+- `X-Payment-Token: <access_token>`
+- optionally `x-api-key` if your deployment still enforces merchant auth for that route
+
+Expected result: `201` (or `200` for idempotent replay).
+
+### Step 7: Complete normal checkout lifecycle
+
+After payment link creation:
+
+- expose `payment_link` to the customer
+- poll `GET /api/payment-status/:id` (free)
+- confirm via `POST /api/verify-payment/:id` (free)
+- listen for webhook events
+
+---
+
+## Frontend framework integration samples (x402 mode)
+
+Architecture:
+
+`Frontend -> Your backend -> PLUTO (x402 flow)`
+
+### Next.js route handler
+
+`app/api/checkout/route.ts`
+
+```ts
+import { NextResponse } from "next/server";
+
+const API_URL = process.env.PLUTO_API_URL || "http://localhost:4000";
+
+export async function POST(req: Request) {
+  const payload = await req.json();
+
+  const first = await fetch(`${API_URL}/api/create-payment`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const firstBody = await first.json();
+  if (first.ok) return NextResponse.json(firstBody, { status: first.status });
+  if (first.status !== 402) return NextResponse.json(firstBody, { status: first.status });
+
+  const txHash = await payOnStellar({
+    amount: firstBody.amount,
+    recipient: firstBody.recipient,
+    memo: firstBody.memo,
+    assetIssuer: firstBody.asset_issuer,
+  });
+
+  const verified = await fetch(`${API_URL}/api/verify-x402`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tx_hash: txHash,
+      expected_amount: firstBody.amount,
+      expected_recipient: firstBody.recipient,
+      memo: firstBody.memo,
+    }),
+  });
+  const verifyBody = await verified.json();
+  if (!verified.ok) return NextResponse.json(verifyBody, { status: verified.status });
+
+  const retry = await fetch(`${API_URL}/api/create-payment`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Payment-Token": verifyBody.access_token,
+    },
+    body: JSON.stringify(payload),
+  });
+  const retryBody = await retry.json();
+  return NextResponse.json(retryBody, { status: retry.status });
+}
+```
+
+### React + Express
+
+`server/routes/checkout.js`
+
+```js
+router.post("/checkout", async (req, res) => {
+  const first = await fetch(`${API_URL}/api/create-payment`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req.body),
+  });
+
+  const body = await first.json();
+  if (first.ok) return res.status(first.status).json(body);
+  if (first.status !== 402) return res.status(first.status).json(body);
+
+  const txHash = await payOnStellar({
+    amount: body.amount,
+    recipient: body.recipient,
+    memo: body.memo,
+    assetIssuer: body.asset_issuer,
+  });
+
+  const verify = await fetch(`${API_URL}/api/verify-x402`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tx_hash: txHash,
+      expected_amount: body.amount,
+      expected_recipient: body.recipient,
+      memo: body.memo,
+    }),
+  });
+
+  const verifyBody = await verify.json();
+  if (!verify.ok) return res.status(verify.status).json(verifyBody);
+
+  const retry = await fetch(`${API_URL}/api/create-payment`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Payment-Token": verifyBody.access_token,
+    },
+    body: JSON.stringify(req.body),
+  });
+
+  const retryBody = await retry.json();
+  return res.status(retry.status).json(retryBody);
+});
+```
+
+### Nuxt 3 server API
+
+`server/api/checkout.post.ts`
+
+```ts
+export default defineEventHandler(async (event) => {
+  const payload = await readBody(event);
+  const config = useRuntimeConfig();
+
+  const first = await $fetch.raw(`${config.public.plutoApiUrl}/api/create-payment`, {
+    method: "POST",
+    body: payload,
+  });
+
+  if (first.status !== 402) {
+    return first._data;
+  }
+
+  const txHash = await payOnStellar({
+    amount: first._data.amount,
+    recipient: first._data.recipient,
+    memo: first._data.memo,
+    assetIssuer: first._data.asset_issuer,
+  });
+
+  const verify = await $fetch.raw(`${config.public.plutoApiUrl}/api/verify-x402`, {
+    method: "POST",
+    body: {
+      tx_hash: txHash,
+      expected_amount: first._data.amount,
+      expected_recipient: first._data.recipient,
+      memo: first._data.memo,
+    },
+  });
+
+  const retry = await $fetch.raw(`${config.public.plutoApiUrl}/api/create-payment`, {
+    method: "POST",
+    headers: { "X-Payment-Token": verify._data.access_token },
+    body: payload,
+  });
+
+  return retry._data;
+});
+```
+
+---
+
+## How it works in practice
+
+### Scenario: ecommerce integration
+
+You've integrated PLUTO in your online store. When a customer checks out, your backend calls `POST /api/create-payment` to generate a payment link.
+
+**Without x402 token:**
+```bash
+POST /api/create-payment
+x-api-key: sk_your_merchant_key
+Content-Type: application/json
+
+{ "amount": 25, "asset": "USDC", "recipient": "G..." }
+```
+
+```json
+HTTP 402 Payment Required
+{
+  "x402": true,
+  "error": "Payment required",
+  "amount": "0.01",
+  "asset": "USDC",
+  "recipient": "GDTVZPCLO7YHRF3JQV6TQI6XW3DIIMFWWQWI25WWLOUZM5AOCZTE5RA3",
+  "memo": "pluto-create-a1b2c3d4e5f6g7h8",
+  "verify_url": "http://localhost:4000/api/verify-x402",
+  "instructions": "Send 0.01 USDC to recipient with memo, then POST tx_hash to verify_url..."
+}
+```
+
+**Your backend pays 0.01 USDC on Stellar, gets a token, retries:**
+```bash
+POST /api/create-payment
+x-api-key: sk_your_merchant_key
+X-Payment-Token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{ "amount": 25, "asset": "USDC", "recipient": "G..." }
+```
+
+```json
+HTTP 201 Created
+{
+  "payment_id": "uuid",
+  "payment_link": "https://pluto.io/pay/uuid",
+  "status": "pending"
+}
+```
+
+The token is valid for **60 seconds**. Your backend can reuse it for multiple calls within that window.
+
+---
+
+## Node.js integration (copy-paste starter)
+
+Use this when your server needs to create PLUTO payment links and automatically handle `402 Payment Required`.
+
+```js
+// server.js
+import express from "express";
+
+const app = express();
+app.use(express.json());
+
+const PLUTO_API = process.env.PLUTO_API_URL || "http://localhost:4000";
+const PLUTO_API_KEY = process.env.PLUTO_API_KEY; // merchant x-api-key
+
+async function createPaymentWithX402(payload) {
+  let token = null;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(`${PLUTO_API}/api/create-payment`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": PLUTO_API_KEY,
+        ...(token ? { "X-Payment-Token": token } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const body = await res.json().catch(() => ({}));
+
+    if (res.ok) return body; // { payment_id, payment_link, ... }
+
+    // x402 path: pay on-chain, verify, retry once with token
+    if (res.status === 402 && attempt === 0) {
+      // Replace this with your real Stellar payment sender.
+      const txHash = await payOnStellar({
+        amount: body.amount,
+        recipient: body.recipient,
+        memo: body.memo,
+        assetIssuer: body.asset_issuer,
+      });
+
+      const verifyRes = await fetch(`${PLUTO_API}/api/verify-x402`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tx_hash: txHash,
+          expected_amount: body.amount,
+          expected_recipient: body.recipient,
+          memo: body.memo,
+        }),
+      });
+      const verifyBody = await verifyRes.json();
+      if (!verifyRes.ok) throw new Error(verifyBody.error || "x402 verification failed");
+
+      token = verifyBody.access_token;
+      continue;
+    }
+
+    throw new Error(body.error || `PLUTO request failed (${res.status})`);
+  }
+
+  throw new Error("Unable to create payment");
+}
+
+// Example endpoint your frontend/store calls
+app.post("/api/checkout", async (req, res) => {
+  try {
+    const result = await createPaymentWithX402({
+      amount: "25",
+      asset: "USDC",
+      recipient: "G...MERCHANT_WALLET",
+      metadata: { order_id: "order-1001" },
+    });
+
+    res.json({
+      payment_id: result.payment_id,
+      payment_link: result.payment_link,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || "Checkout failed" });
+  }
+});
+
+app.listen(3001, () => console.log("Store server running on :3001"));
+```
+
+`payOnStellar(...)` is your wallet logic (or agent logic) that submits the USDC payment and returns the transaction hash.
 
 ---
 
@@ -28,19 +491,18 @@ Money flows **directly** from the agent's Stellar wallet to the API provider's w
 
 ### Browser demo
 
-Visit [/x402-demo](/x402-demo) to watch the full payment flow visualized step by step in your browser.
+Visit [/x402-demo](/x402-demo) to watch the full payment flow visualized step by step.
 
-### Terminal demo (fully autonomous)
-
-The terminal demo runs a completely self-contained agent — it generates its own Stellar wallet, funds it via Friendbot, acquires USDC, and completes the entire x402 flow without any human interaction.
+### Terminal demo (fully autonomous agent)
 
 ```bash
 cd backend
 node scripts/demoAgent.js
 ```
 
-**Expected output:**
+The agent generates its own Stellar wallet, funds it, acquires USDC, and completes the entire x402 flow without any human interaction.
 
+**Expected output:**
 ```
 ╔══════════════════════════════════════════════╗
 ║   PLUTO x402 Agent Demo · Stellar Testnet    ║
@@ -48,22 +510,15 @@ node scripts/demoAgent.js
 
 [AGENT] ✓ PLUTO server running at http://localhost:4000
 [AGENT] [SETUP] Generating fresh agent keypair...
-[AGENT]   Public key : GABC1234...
-[AGENT] [SETUP] Funding with Friendbot (testnet XLM)...
-[AGENT] ✓ Funded with 10,000 XLM
-[AGENT] [SETUP] Adding USDC trustline...
+[AGENT] ✓ Funded with 10,000 XLM via Friendbot
 [AGENT] ✓ USDC trustline added
-[AGENT] [SETUP] Acquiring USDC (XLM → USDC via testnet DEX)...
 [AGENT] ✓ Acquired 1.00 USDC via DEX
 
 [AGENT] [1/4] Hitting endpoint: GET /api/demo/protected
 [AGENT] ✓ Got 402 — payment required: 0.10 USDC
-[AGENT]   Recipient : GDTVZ...
-[AGENT]   Memo      : x402-a1b2c3d4e5f6g7h8
 
 [AGENT] [2/4] Sending 0.10 USDC → GDTVZ...
 [AGENT] ✓ Payment submitted → tx_hash: 02ad45864ff0...
-[AGENT]   View on explorer: https://stellar.expert/explorer/testnet/tx/...
 
 [AGENT] [3/4] Verifying payment with PLUTO...
 [AGENT] ✓ Access token received (expires in 60s)
@@ -73,8 +528,53 @@ node scripts/demoAgent.js
 ╔══════════════════════════════════════════════╗
 ║          AGENT MISSION COMPLETE ✓            ║
 ╚══════════════════════════════════════════════╝
+```
 
-[AGENT] ✓ Protected data received:
+---
+
+## API Reference
+
+### `POST /api/verify-x402`
+
+Verifies a Stellar USDC payment and issues a short-lived JWT.
+
+**Request:**
+```json
+{
+  "tx_hash": "02ad45864ff019eee15e01b2f8a3b8a03d0c521f644112099349d455a4c641f7",
+  "expected_amount": "0.01",
+  "expected_recipient": "GDTVZPCLO7YHRF3JQV6TQI6XW3DIIMFWWQWI25WWLOUZM5AOCZTE5RA3",
+  "memo": "pluto-create-a1b2c3d4e5f6g7h8"
+}
+```
+
+**Success (200):**
+```json
+{
+  "verified": true,
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expires_in": 60,
+  "tx_hash": "02ad45864ff0...",
+  "amount": "0.01",
+  "asset": "USDC"
+}
+```
+
+**Error responses:**
+
+| Status | Reason |
+|---|---|
+| `400` | Missing fields, memo mismatch, amount mismatch, tx not found |
+| `409` | Transaction already used (replay attack prevention) |
+
+---
+
+### `GET /api/demo/protected`
+
+A demo endpoint protected by x402. Costs **0.10 USDC** per request.
+
+**Without token → 402.** **With `X-Payment-Token` header → 200:**
+```json
 {
   "secret_data": "you paid for this",
   "timestamp": "2026-04-01T12:00:00.000Z",
@@ -84,150 +584,47 @@ node scripts/demoAgent.js
 
 ---
 
-## API Reference
-
-### `POST /api/verify-x402`
-
-Verifies a Stellar USDC payment and issues a short-lived JWT access token.
-
-**Request body:**
-
-```json
-{
-  "tx_hash": "02ad45864ff019eee15e01b2f8a3b8a03d0c521f644112099349d455a4c641f7",
-  "expected_amount": "0.10",
-  "expected_recipient": "GDTVZPCLO7YHRF3JQV6TQI6XW3DIIMFWWQWI25WWLOUZM5AOCZTE5RA3",
-  "memo": "x402-a1b2c3d4e5f6g7h8"
-}
-```
-
-**Success response (200):**
-
-```json
-{
-  "verified": true,
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "expires_in": 60,
-  "tx_hash": "02ad45864ff0...",
-  "amount": "0.10",
-  "asset": "USDC"
-}
-```
-
-**Error responses:**
-
-| Status | Reason |
-|--------|--------|
-| `400` | Missing fields, memo mismatch, amount mismatch, or tx not found |
-| `409` | Transaction already used (replay attack prevention) |
-| `500` | x402 not configured on server |
-
----
-
-### `GET /api/demo/protected`
-
-A demo endpoint protected by x402. Costs **0.10 USDC** per request.
-
-**Without payment token → 402:**
-
-```json
-{
-  "x402": true,
-  "error": "Payment required",
-  "amount": "0.10",
-  "asset": "USDC",
-  "network": "stellar-testnet",
-  "recipient": "GDTVZPCLO7YHRF3JQV6TQI6XW3DIIMFWWQWI25WWLOUZM5AOCZTE5RA3",
-  "asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-  "memo": "x402-a1b2c3d4e5f6g7h8",
-  "verify_url": "http://localhost:4000/api/verify-x402",
-  "instructions": "Send exact USDC amount to recipient with memo, then POST tx_hash to verify_url..."
-}
-```
-
-**With valid `X-Payment-Token` header → 200:**
-
-```json
-{
-  "secret_data": "you paid for this",
-  "timestamp": "2026-04-01T12:00:00.000Z",
-  "payment": {
-    "tx_hash": "02ad45864ff0...",
-    "amount": "0.10",
-    "memo": "x402-a1b2c3d4e5f6g7h8"
-  }
-}
-```
-
----
-
-### `GET /api/demo/free`
-
-A free endpoint for comparison — no payment required.
-
-```json
-{
-  "message": "This endpoint is free. No payment required.",
-  "timestamp": "2026-04-01T12:00:00.000Z"
-}
-```
-
----
-
-## Protecting Your Own Endpoints
+## Protecting your own endpoints
 
 Use the `x402Middleware` to add pay-per-request to any Express route:
 
 ```js
 import { x402Middleware } from './middleware/x402.js';
 
-// Charge 0.05 USDC per analytics query
-app.get('/api/metrics/7day',
+app.get('/api/premium-data',
   x402Middleware({
     amount: '0.05',
     recipient: 'G...YOUR_STELLAR_ADDRESS',
   }),
-  (req, res) => {
-    res.json({ volume: 12345 });
-  }
+  (req, res) => res.json({ data: 'premium content' })
 );
 ```
 
-**Middleware config options:**
-
 | Option | Required | Default | Description |
-|--------|----------|---------|-------------|
-| `amount` | ✓ | — | USDC amount per request (e.g. `"0.10"`) |
-| `recipient` | ✓ | — | Your Stellar address that receives payments |
+|---|---|---|---|
+| `amount` | ✓ | — | USDC per request (e.g. `"0.01"`) |
+| `recipient` | ✓ | — | Your Stellar address |
 | `asset` | — | `"USDC"` | Asset code |
-| `plutoVerifyUrl` | — | `http://localhost:4000/api/verify-x402` | Verification endpoint URL |
+| `plutoVerifyUrl` | — | `http://localhost:4000/api/verify-x402` | Verification URL |
 | `memo_prefix` | — | `"x402"` | Prefix for generated memos |
 
 ---
 
 ## Security
 
-### Replay attack prevention
-
-Every verified `tx_hash` is stored in the `x402_payments` table. Attempting to reuse a transaction hash returns `409 Conflict`. This prevents an agent from paying once and reusing the token indefinitely.
-
-### Short-lived tokens
-
-Access tokens expire in **60 seconds** (configurable via `X402_TOKEN_EXPIRY_SECONDS`). After expiry, the agent must pay again.
-
-### Memo matching
-
-Each 402 response includes a unique memo (`x402-<16-char-random-id>`). The verification step confirms the on-chain transaction used exactly that memo, preventing one payment from unlocking a different request.
+| Mechanism | How it works |
+|---|---|
+| **Replay prevention** | Every `tx_hash` stored in `x402_payments` table. Reuse returns `409`. |
+| **Short-lived tokens** | JWTs expire in 60s (configurable via `X402_TOKEN_EXPIRY_SECONDS`). |
+| **Memo matching** | Each 402 generates a unique memo. Verification confirms the on-chain tx used exactly that memo. |
+| **Amount matching** | Verification checks the exact USDC amount — underpayment returns `400`. |
 
 ---
 
-## Environment Variables
-
-Add these to `backend/.env`:
+## Environment variables
 
 ```bash
-# x402 configuration
-X402_JWT_SECRET=your_strong_random_secret_here
+X402_JWT_SECRET=your_strong_random_secret
 X402_TOKEN_EXPIRY_SECONDS=60
 X402_PROVIDER_PUBLIC_KEY=G...YOUR_STELLAR_ADDRESS
 ```
@@ -239,20 +636,20 @@ openssl rand -hex 32
 
 ---
 
-## How It Differs from Regular Payments
+## Regular payments vs x402
 
 | | Regular PLUTO Payment | x402 Payment |
 |---|---|---|
 | **Who pays** | End customer (human) | Developer / AI agent (software) |
 | **UI** | Checkout page with QR code | Programmatic — no UI |
-| **Amount** | Any amount | Fixed per-request fee |
+| **Amount** | Any amount set by merchant | Fixed per-request fee |
 | **Purpose** | Buy goods/services | Unlock API access |
-| **Token** | None | Short-lived JWT |
-| **Frequency** | One-off | Per API call |
+| **Token** | None | Short-lived JWT (60s) |
+| **Frequency** | One-off per order | Per API call |
 
 ---
 
-## Testnet Resources
+## Testnet resources
 
 - **USDC Issuer (testnet):** `GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5`
 - **Fund with XLM:** [Stellar Friendbot](https://friendbot.stellar.org)

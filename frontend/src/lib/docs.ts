@@ -5,27 +5,27 @@ import { docsManifest } from "@/lib/docs-manifest";
 
 export async function getDocBySlug(slug: string) {
   const entry = docsManifest.find((doc) => doc.slug === slug);
+  if (!entry) return null;
 
-  if (!entry) {
-    return null;
-  }
-
-  // Dynamic imports for ESM-only packages
   const remarkGfm = (await import("remark-gfm")).default;
   const rehypePrismPlus = (await import("rehype-prism-plus")).default;
 
-  // Try the filename as-is first, then with .mdx extension
   const candidates = [
     entry.filename,
-    entry.filename.endsWith(".mdx") ? entry.filename : entry.filename.replace(/\.md$/, ".mdx"),
+    entry.filename.replace(/\.md$/, ".mdx"),
     entry.filename.replace(/\.mdx$/, ".md"),
   ];
 
   for (const filename of candidates) {
     const filePath = path.join(process.cwd(), "content", "docs", filename);
     try {
-      const mdxContent = await fs.readFile(filePath, "utf8");
-      const serialized = await serialize(mdxContent, {
+      const raw = await fs.readFile(filePath, "utf8");
+
+      // Escape lone curly braces outside code blocks so MDX doesn't treat them as JSX.
+      // We replace { and } that are NOT inside backtick fences with their HTML entities.
+      const escaped = escapeNonCodeBraces(raw);
+
+      const serialized = await serialize(escaped, {
         mdxOptions: {
           remarkPlugins: [remarkGfm],
           rehypePlugins: [
@@ -34,12 +34,30 @@ export async function getDocBySlug(slug: string) {
         },
       });
       return { ...entry, serialized, filename };
-    } catch (err) {
-      console.error(`[docs] Failed to serialize ${filename}:`, err);
+    } catch {
       // try next candidate
     }
   }
 
-  console.error(`Could not find doc file for slug: ${slug}. Tried: ${candidates.join(", ")}`);
+  console.error(`[docs] Could not load slug: ${slug}`);
   return null;
+}
+
+/**
+ * Escape { and } that appear outside fenced code blocks.
+ * MDX treats bare braces as JSX expressions and throws on them.
+ */
+function escapeNonCodeBraces(content: string): string {
+  const lines = content.split("\n");
+  let inFence = false;
+  return lines.map((line) => {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      inFence = !inFence;
+      return line;
+    }
+    if (inFence) return line;
+    // Outside code blocks: escape bare { and } so MDX doesn't parse them as JSX
+    return line.replace(/\{/g, "&#123;").replace(/\}/g, "&#125;");
+  }).join("\n");
 }

@@ -2,7 +2,7 @@ import DocsSidebar from "@/components/DocsSidebar";
 
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
   return (
-    <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-8 px-4 py-10 lg:flex-row lg:items-start lg:gap-10 lg:py-16">
+    <main className="mx-auto flex min-h-screen max-w-7xl  flex-col gap-8 px-4 py-10 lg:flex-row lg:items-start lg:gap-10 lg:py-16">
       {/* Sidebar */}
       <aside className="w-full lg:sticky lg:top-8 lg:w-72 lg:shrink-0">
         <div className="rounded-2xl border border-[#E8E8E8] bg-white p-6 shadow-sm">
