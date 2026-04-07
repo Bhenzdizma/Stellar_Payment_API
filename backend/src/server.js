@@ -14,6 +14,7 @@ initSentry();
 validateEnvironmentVariables();
 
 const port = process.env.PORT || 4000;
+const host = process.env.HOST || "0.0.0.0";
 
 async function startServer() {
   let redisClient = null;
@@ -69,8 +70,8 @@ async function startServer() {
     logger.info({ intervalMs: monitoringIntervalMs }, "pool monitoring started");
   }
 
-  const server = app.listen(port, () => {
-    logger.info({ port }, `API listening on http://localhost:${port}`);
+  const server = app.listen(port, host, () => {
+    logger.info({ host, port }, `API listening on http://${host}:${port}`);
   });
 
   // Attach socket.io to the HTTP server
