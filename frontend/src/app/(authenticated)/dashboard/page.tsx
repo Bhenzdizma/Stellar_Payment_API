@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from "react";
 import AnalyticsCards from "@/components/AnalyticsCards";
 import ActivityFeed from "@/components/ActivityFeed";
-import WithdrawalModal from "@/components/WithdrawalModal";
 import DashboardSkeleton from "@/components/DashboardSkeleton";
 import Link from "next/link";
 import {
@@ -18,7 +17,6 @@ import FirstPaymentCelebration from "@/components/FirstPaymentCelebration";
 
 export default function DashboardPage() {
   const t = useTranslations("dashboardPage");
-  const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
   const [isFirstKeyModalOpen, setIsFirstKeyModalOpen] = useState(false);
   const hydrated = useMerchantHydrated();
   const apiKey = useMerchantApiKey();
@@ -86,16 +84,6 @@ export default function DashboardPage() {
                 </svg>
                 {t("createPaymentLink")}
               </Link>
-              <button
-                type="button"
-                onClick={() => setIsWithdrawOpen(true)}
-                className="flex items-center gap-3 rounded-xl border border-[#E8E8E8] bg-[#F9F9F9] px-4 py-3 text-sm font-bold text-[#0A0A0A] transition-all hover:bg-[#0A0A0A] hover:text-white hover:border-[#0A0A0A]"
-              >
-                <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                </svg>
-                {t("withdrawFunds")}
-              </button>
               <Link
                 href="/settings"
                 className="flex items-center gap-3 rounded-xl border border-[#E8E8E8] bg-[#F9F9F9] px-4 py-3 text-sm font-bold text-[#0A0A0A] transition-all hover:bg-[#0A0A0A] hover:text-white hover:border-[#0A0A0A]"
@@ -135,31 +123,23 @@ export default function DashboardPage() {
           </section>
 
           <section className="rounded-2xl border border-[#E8E8E8] bg-white p-6">
-            <h3 className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-[#6B6B6B]">Integration Modes</h3>
+            <h3 className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-[#6B6B6B]">x402 Integration</h3>
             <p className="mb-4 text-xs text-[#6B6B6B]">
-              Use one merchant account, then choose your pricing/integration path.
+              Build pay-per-request flows with the production x402 setup guide.
             </p>
             <div className="flex flex-col gap-2">
-              <Link
-                href="/docs/api-guide"
-                className="flex items-center justify-between rounded-xl border border-[#E8E8E8] bg-[#F9F9F9] px-4 py-3 text-sm font-bold text-[#0A0A0A] transition-colors hover:bg-[#F2F2F2]"
-              >
-                <span>Subscription Mode</span>
-                <span className="text-[10px] uppercase tracking-widest text-[#6B6B6B]">Path 01</span>
-              </Link>
               <Link
                 href="/docs/x402-agentic-payments"
                 className="flex items-center justify-between rounded-xl border border-[var(--pluto-200)] bg-[var(--pluto-50)] px-4 py-3 text-sm font-bold text-[var(--pluto-700)] transition-colors hover:bg-[var(--pluto-100)]"
               >
-                <span>x402 Pay-per-request</span>
-                <span className="text-[10px] uppercase tracking-widest text-[var(--pluto-600)]">Path 02</span>
+                <span>Open x402 Integration Guide</span>
+                <span className="text-[10px] uppercase tracking-widest text-[var(--pluto-600)]">Docs</span>
               </Link>
             </div>
           </section>
         </aside>
       </div>
 
-      <WithdrawalModal isOpen={isWithdrawOpen} onClose={() => setIsWithdrawOpen(false)} />
       <FirstApiKeyModal isOpen={isFirstKeyModalOpen} onClose={() => setIsFirstKeyModalOpen(false)} />
       <FirstPaymentCelebration />
     </div>

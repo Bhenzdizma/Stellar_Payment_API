@@ -155,18 +155,6 @@ export default function Sidebar({
         t={t}
         onNavigate={() => onMobileOpenChange(false)}
       />
-
-      <div className="p-4">
-        <div className="rounded-lg bg-[var(--pluto-50)] border border-[var(--pluto-100)] p-5">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--pluto-600)]">
-            {t("network")}
-          </p>
-          <div className="mt-2 flex items-center gap-2 text-xs font-medium text-[var(--pluto-800)]">
-            <span className="h-2 w-2 rounded-full bg-[var(--pluto-500)]" />
-            Stellar Mainnet
-          </div>
-        </div>
-      </div>
     </>
   );
 

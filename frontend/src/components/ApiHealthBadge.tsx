@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-type HealthStatus = "loading" | "healthy" | "error";
+type ExtendedHealthStatus = "loading" | "healthy" | "error";
 
 export default function ApiHealthBadge() {
-  const [status, setStatus] = useState<HealthStatus>("loading");
+  const [status, setStatus] = useState<ExtendedHealthStatus>("loading");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -13,16 +13,29 @@ export default function ApiHealthBadge() {
     const checkHealth = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-        const res = await fetch(`${apiUrl}/health`);
-        const data = await res.json();
-        
+        const res = await fetch(`${apiUrl}/health`, { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+
         if (mounted) {
-          if (res.ok && data.ok && data.horizon_reachable) {
+          const services = data?.services ?? {};
+          const dbOk = services.database === "ok";
+          const horizonOk = services.horizon === "ok";
+          const apiReachable = true; // If we got an HTTP response, backend is reachable.
+          const healthy = apiReachable;
+
+          if (healthy) {
             setStatus("healthy");
-            setErrorMsg("Dashboard & Stellar Network Online");
+            const missing: string[] = [];
+            if (!dbOk) missing.push("database");
+            if (!horizonOk) missing.push("horizon");
+            setErrorMsg(
+              missing.length > 0
+                ? `Degraded dependency: ${missing.join(" + ")} unavailable`
+                : null,
+            );
           } else {
             setStatus("error");
-            setErrorMsg(data.error || "Service Disruption Detected");
+            setErrorMsg(data?.error || "Backend unavailable");
           }
         }
       } catch {
@@ -53,13 +66,13 @@ export default function ApiHealthBadge() {
       color: "bg-green-500",
       pulse: "bg-green-500/20",
       text: "text-[#6B6B6B]",
-      label: "All Systems Operational",
+      label: "Pluto API Online",
     },
     error: {
       color: "bg-red-500",
       pulse: "bg-red-500/20",
       text: "text-red-500",
-      label: "Service Disruption",
+      label: "Pluto API Offline",
     },
   }[status];
 
@@ -74,13 +87,13 @@ export default function ApiHealthBadge() {
         <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${config.color}`} />
       </div>
       <span className={`text-[10px] font-bold uppercase tracking-widest ${config.text}`}>
-        {status === "error" ? "Degraded" : "API"}
+        {status === "healthy" ? "API Active" : status === "error" ? "API Down" : "Checking"}
       </span>
 
       {/* Tooltip */}
       <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-3 -translate-x-1/2 whitespace-nowrap rounded-xl border border-[#E8E8E8] bg-white px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-[#0A0A0A] opacity-0 shadow-[0_10px_30px_rgb(0,0,0,0.08)] transition-all group-hover:opacity-100 group-hover:translate-y-1">
         <p className="text-center">{config.label}</p>
-        {(status === "error" && errorMsg) && (
+        {(errorMsg && status !== "loading") && (
           <p className="mt-1.5 text-[9px] text-[#6B6B6B] lowercase tracking-normal font-medium text-center">{errorMsg}</p>
         )}
       </div>
